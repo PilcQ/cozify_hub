@@ -54,21 +54,36 @@ class CozifyHubAPI:
             await self._session.close()
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": self._hub_token,
-            "Content-Type": "application/json",
-        }
+        return {"Content-Type": "application/json"}
+
+    def _params(self, extra: dict | None = None) -> dict[str, str]:
+        """Return query params including the hub token."""
+        params = {"token": self._hub_token}
+        if extra:
+            params.update(extra)
+        return params
+
+    def _check_auth_error(self, data: Any) -> None:
+        """Raise auth error if the hub returned an authentication failure."""
+        if isinstance(data, dict) and data.get("code") == 1:
+            msg = data.get("message", "")
+            if "Authentication" in msg:
+                raise CozifyHubAuthError(msg)
 
     async def _get(self, path: str) -> Any:
         session = await self._get_session()
         url = f"{self._base_url}{path}"
         try:
             async with asyncio.timeout(DEFAULT_TIMEOUT):
-                async with session.get(url, headers=self._headers()) as resp:
+                async with session.get(
+                    url, headers=self._headers(), params=self._params()
+                ) as resp:
                     if resp.status == 401:
                         raise CozifyHubAuthError("Invalid hub token")
                     resp.raise_for_status()
-                    return await resp.json(content_type=None)
+                    data = await resp.json(content_type=None)
+                    self._check_auth_error(data)
+                    return data
         except asyncio.TimeoutError as err:
             raise CozifyHubConnectionError(f"Timeout connecting to {url}") from err
         except aiohttp.ClientError as err:
@@ -79,13 +94,17 @@ class CozifyHubAPI:
         url = f"{self._base_url}{path}"
         try:
             async with asyncio.timeout(DEFAULT_TIMEOUT):
-                async with session.put(url, headers=self._headers(), json=data) as resp:
+                async with session.put(
+                    url, headers=self._headers(), params=self._params(), json=data
+                ) as resp:
                     if resp.status == 401:
                         raise CozifyHubAuthError("Invalid hub token")
                     resp.raise_for_status()
                     text = await resp.text()
                     if text:
-                        return await resp.json(content_type=None)
+                        result = await resp.json(content_type=None)
+                        self._check_auth_error(result)
+                        return result
                     return None
         except asyncio.TimeoutError as err:
             raise CozifyHubConnectionError(f"Timeout connecting to {url}") from err
@@ -97,13 +116,13 @@ class CozifyHubAPI:
         return await self._get("/devices")
 
     async def get_hub_info(self) -> dict[str, Any]:
-        """Return hub information."""
-        return await self._get("/hub")
+        """Return hub information by fetching devices (no /hub endpoint)."""
+        return await self._get("/devices")
 
     async def ping(self) -> bool:
         """Ping the hub to verify connectivity."""
         try:
-            await self._get("/hub")
+            await self._get("/devices")
             return True
         except CozifyHubError:
             return False

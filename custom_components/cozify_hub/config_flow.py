@@ -44,8 +44,8 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
 
             api = CozifyHubAPI(host=host, hub_token=token, port=port)
             try:
-                hub_info = await api.get_hub_info()
-                hub_name = hub_info.get("name", f"Cozify HUB ({host})")
+                await api.get_devices()
+                hub_name = f"Cozify HUB ({host})"
             except CozifyHubAuthError:
                 errors["base"] = "invalid_auth"
             except CozifyHubConnectionError:
