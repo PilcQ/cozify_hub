@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_EMAIL
 
-from .const import CONF_CLOUD_TOKEN, CONF_HUB_HOST, CONF_HUB_ID, CONF_HUB_PORT, DEFAULT_PORT, DOMAIN
+from .const import CONF_CLOUD_TOKEN, CONF_HUB_HOST, CONF_HUB_ID, CONF_HUB_PORT, CONF_HUB_TOKEN, DEFAULT_PORT, DOMAIN
 from .hub_api import CozifyCloudAPI, CozifyHubAPI, CozifyHubAuthError, CozifyHubConnectionError
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,26 +48,17 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
 
             session = aiohttp.ClientSession()
             try:
-                # Test hub connectivity using the public /hub endpoint
                 hub_url = f"http://{self._host}:{self._port}/hub"
                 _LOGGER.debug("Testing hub connectivity at %s", hub_url)
                 async with session.get(hub_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    _LOGGER.debug("Hub ping response: %s", resp.status)
                     if resp.status != 200:
-                        _LOGGER.error("Hub returned status %s", resp.status)
                         errors["base"] = "cannot_connect"
                     else:
-                        # Hub reachable — request OTP
-                        _LOGGER.debug("Hub reachable, requesting OTP for %s", self._email)
                         cloud = CozifyCloudAPI(session)
                         await cloud.request_otp(self._email)
-                        _LOGGER.debug("OTP requested successfully")
                         return await self.async_step_otp()
-            except aiohttp.ClientConnectorError as err:
-                _LOGGER.error("Cannot connect to hub at %s:%s - %s", self._host, self._port, err)
-                errors["base"] = "cannot_connect"
             except aiohttp.ClientError as err:
-                _LOGGER.error("HTTP error connecting to hub: %s", err)
+                _LOGGER.error("Cannot connect to hub: %s", err)
                 errors["base"] = "cannot_connect"
             except CozifyHubConnectionError as err:
                 _LOGGER.error("OTP request failed: %s", err)
@@ -82,9 +73,6 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=STEP_USER_SCHEMA,
             errors=errors,
-            description_placeholders={
-                "description": "Enter your Cozify account email and the local IP of your hub."
-            },
         )
 
     async def async_step_otp(
@@ -98,10 +86,19 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             session = aiohttp.ClientSession()
             try:
                 cloud = CozifyCloudAPI(session)
-                _LOGGER.debug("Attempting email login for %s", self._email)
-                cloud_token = await cloud.email_login(self._email, otp)
-                _LOGGER.debug("Cloud login successful, got token")
 
+                # Step 1: get cloud token
+                _LOGGER.debug("Logging in with email+OTP")
+                cloud_token = await cloud.email_login(self._email, otp)
+                _LOGGER.debug("Cloud login successful")
+
+                # Step 2: get hub-specific token from cloud
+                _LOGGER.debug("Fetching hub keys from cloud")
+                hub_keys = await cloud.get_hub_keys(cloud_token)
+                _LOGGER.debug("Hub keys received: %s", list(hub_keys.keys()))
+
+                # Step 3: get hub info to find hub_id and name
+                # Use cloud token for /hub (public endpoint needs no auth)
                 api = CozifyHubAPI(
                     host=self._host,
                     cloud_token=cloud_token,
@@ -109,23 +106,40 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                     session=session,
                 )
                 hub_info = await api.get_hub_info()
-                _LOGGER.debug("Hub info: %s", hub_info)
-                hub_name = hub_info.get("name", f"Cozify HUB ({self._host})")
                 hub_id = hub_info.get("hubId", self._host)
+                hub_name = hub_info.get("name", f"Cozify HUB ({self._host})")
+                _LOGGER.debug("Hub ID: %s, Name: %s", hub_id, hub_name)
 
-                await self.async_set_unique_id(hub_id)
-                self._abort_if_unique_id_configured()
+                # Step 4: get the hub-specific token for this hub
+                hub_token = hub_keys.get(hub_id)
+                if not hub_token and hub_keys:
+                    hub_token = next(iter(hub_keys.values()))
+                    _LOGGER.warning("Hub ID not in keys, using first available key")
 
-                return self.async_create_entry(
-                    title=hub_name,
-                    data={
-                        CONF_EMAIL: self._email,
-                        CONF_HUB_HOST: self._host,
-                        CONF_HUB_PORT: self._port,
-                        CONF_CLOUD_TOKEN: cloud_token,
-                        CONF_HUB_ID: hub_id,
-                    },
-                )
+                if not hub_token:
+                    _LOGGER.error("No hub token found in keys: %s", hub_keys)
+                    errors["base"] = "invalid_auth"
+                else:
+                    # Step 5: verify hub token works for /devices
+                    _LOGGER.debug("Testing hub token against /devices")
+                    api.update_token(hub_token)
+                    devices = await api.get_devices()
+                    _LOGGER.debug("Devices fetched successfully: %s devices", len(devices))
+
+                    await self.async_set_unique_id(hub_id)
+                    self._abort_if_unique_id_configured()
+
+                    return self.async_create_entry(
+                        title=hub_name,
+                        data={
+                            CONF_EMAIL: self._email,
+                            CONF_HUB_HOST: self._host,
+                            CONF_HUB_PORT: self._port,
+                            CONF_CLOUD_TOKEN: cloud_token,
+                            CONF_HUB_TOKEN: hub_token,
+                            CONF_HUB_ID: hub_id,
+                        },
+                    )
             except CozifyHubAuthError as err:
                 _LOGGER.error("Auth error: %s", err)
                 errors["base"] = "invalid_auth"
@@ -133,7 +147,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.error("Connection error: %s", err)
                 errors["base"] = "cannot_connect"
             except Exception as err:
-                _LOGGER.exception("Unexpected error during OTP login: %s", err)
+                _LOGGER.exception("Unexpected error: %s", err)
                 errors["base"] = "unknown"
             finally:
                 await session.close()
@@ -142,7 +156,5 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="otp",
             data_schema=STEP_OTP_SCHEMA,
             errors=errors,
-            description_placeholders={
-                "email": self._email,
-            },
+            description_placeholders={"email": self._email},
         )
