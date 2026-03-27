@@ -9,7 +9,7 @@ import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
-CLOUD_BASE = "https://api.cozify.fi/ui/0.2"
+CLOUD_BASE = "https://cloud2.cozify.fi/ui/0.2"
 HUB_BASE_PATH = "/cc/1.14"
 DEFAULT_PORT = 8893
 DEFAULT_TIMEOUT = 10
@@ -37,11 +37,19 @@ class CozifyCloudAPI:
         """Request OTP to be sent to email."""
         try:
             async with asyncio.timeout(DEFAULT_TIMEOUT):
-                async with self._session.get(
+                async with self._session.post(
                     f"{CLOUD_BASE}/user/requestlogin",
                     params={"email": email},
                 ) as resp:
-                    resp.raise_for_status()
+                    _LOGGER.debug("OTP request status: %s", resp.status)
+                    if resp.status not in (200, 201, 204):
+                        # Try GET as fallback
+                        async with self._session.get(
+                            f"{CLOUD_BASE}/user/requestlogin",
+                            params={"email": email},
+                        ) as resp2:
+                            _LOGGER.debug("OTP GET fallback status: %s", resp2.status)
+                            resp2.raise_for_status()
         except aiohttp.ClientError as err:
             raise CozifyHubConnectionError(f"Failed to request OTP: {err}") from err
 
@@ -53,6 +61,7 @@ class CozifyCloudAPI:
                     f"{CLOUD_BASE}/user/emaillogin",
                     data={"email": email, "password": otp},
                 ) as resp:
+                    _LOGGER.debug("Email login status: %s", resp.status)
                     if resp.status in (401, 403):
                         raise CozifyHubAuthError("Invalid OTP or email")
                     resp.raise_for_status()
@@ -158,7 +167,7 @@ class CozifyHubAPI:
             raise CozifyHubConnectionError(f"Error connecting to {url}: {err}") from err
 
     async def get_hub_info(self) -> dict[str, Any]:
-        """Return hub info — public endpoint, no auth needed."""
+        """Return hub info - public endpoint, no auth needed."""
         return await self._get("/hub", use_api_base=False)
 
     async def get_devices(self) -> dict[str, Any]:
