@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Cozify HUB",
+        "description": "Enter your Cozify HUB local IP address and the hub token from the Cozify app.",
+        "data": {
+          "hub_host": "Hub IP Address or Hostname",
+          "hub_token": "Hub Token",
+          "hub_port": "Port (default: 8893)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the Cozify HUB. Check the IP address and port.",
+      "invalid_auth": "Invalid hub token. Please check your token in the Cozify app.",
+      "unknown": "Unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This Cozify HUB is already configured."
+    }
+  }
+}
