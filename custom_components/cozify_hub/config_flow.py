@@ -46,21 +46,34 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             self._host = user_input[CONF_HUB_HOST]
             self._port = user_input.get(CONF_HUB_PORT, DEFAULT_PORT)
 
-            # First verify hub is reachable
             session = aiohttp.ClientSession()
             try:
-                api = CozifyHubAPI(host=self._host, cloud_token="", port=self._port, session=session)
-                if not await api.ping():
-                    errors["base"] = "cannot_connect"
-                else:
-                    # Request OTP email
-                    cloud = CozifyCloudAPI(session)
-                    await cloud.request_otp(self._email)
-                    return await self.async_step_otp()
-            except CozifyHubConnectionError:
+                # Test hub connectivity using the public /hub endpoint
+                hub_url = f"http://{self._host}:{self._port}/hub"
+                _LOGGER.debug("Testing hub connectivity at %s", hub_url)
+                async with session.get(hub_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    _LOGGER.debug("Hub ping response: %s", resp.status)
+                    if resp.status != 200:
+                        _LOGGER.error("Hub returned status %s", resp.status)
+                        errors["base"] = "cannot_connect"
+                    else:
+                        # Hub reachable — request OTP
+                        _LOGGER.debug("Hub reachable, requesting OTP for %s", self._email)
+                        cloud = CozifyCloudAPI(session)
+                        await cloud.request_otp(self._email)
+                        _LOGGER.debug("OTP requested successfully")
+                        return await self.async_step_otp()
+            except aiohttp.ClientConnectorError as err:
+                _LOGGER.error("Cannot connect to hub at %s:%s - %s", self._host, self._port, err)
                 errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error")
+            except aiohttp.ClientError as err:
+                _LOGGER.error("HTTP error connecting to hub: %s", err)
+                errors["base"] = "cannot_connect"
+            except CozifyHubConnectionError as err:
+                _LOGGER.error("OTP request failed: %s", err)
+                errors["base"] = "cannot_connect"
+            except Exception as err:
+                _LOGGER.exception("Unexpected error: %s", err)
                 errors["base"] = "unknown"
             finally:
                 await session.close()
@@ -85,9 +98,10 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             session = aiohttp.ClientSession()
             try:
                 cloud = CozifyCloudAPI(session)
+                _LOGGER.debug("Attempting email login for %s", self._email)
                 cloud_token = await cloud.email_login(self._email, otp)
+                _LOGGER.debug("Cloud login successful, got token")
 
-                # Get hub info for title
                 api = CozifyHubAPI(
                     host=self._host,
                     cloud_token=cloud_token,
@@ -95,6 +109,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                     session=session,
                 )
                 hub_info = await api.get_hub_info()
+                _LOGGER.debug("Hub info: %s", hub_info)
                 hub_name = hub_info.get("name", f"Cozify HUB ({self._host})")
                 hub_id = hub_info.get("hubId", self._host)
 
@@ -111,12 +126,14 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_HUB_ID: hub_id,
                     },
                 )
-            except CozifyHubAuthError:
+            except CozifyHubAuthError as err:
+                _LOGGER.error("Auth error: %s", err)
                 errors["base"] = "invalid_auth"
-            except CozifyHubConnectionError:
+            except CozifyHubConnectionError as err:
+                _LOGGER.error("Connection error: %s", err)
                 errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected error during OTP login")
+            except Exception as err:
+                _LOGGER.exception("Unexpected error during OTP login: %s", err)
                 errors["base"] = "unknown"
             finally:
                 await session.close()
