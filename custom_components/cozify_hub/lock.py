@@ -26,7 +26,7 @@ async def async_setup_entry(
     entities = [
         CozifyHubLock(coordinator, device_id)
         for device_id, device in coordinator.data.items()
-        if CAP_LOCK in device.get("capabilities", [])
+        if CAP_LOCK in device.get("capabilities", {}).get("values", [])
     ]
     async_add_entities(entities)
 

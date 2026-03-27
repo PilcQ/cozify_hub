@@ -3,8 +3,9 @@
 DOMAIN = "cozify_hub"
 
 CONF_HUB_HOST = "hub_host"
-CONF_HUB_TOKEN = "hub_token"
 CONF_HUB_PORT = "hub_port"
+CONF_CLOUD_TOKEN = "cloud_token"
+CONF_HUB_ID = "hub_id"
 
 DEFAULT_PORT = 8893
 DEFAULT_SCAN_INTERVAL = 30

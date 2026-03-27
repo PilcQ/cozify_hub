@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 BINARY_SENSOR_DESCRIPTIONS: dict[str, BinarySensorEntityDescription] = {
     CAP_MOTION: BinarySensorEntityDescription(
-        key="motion",
+        key="selfMotion",
         device_class=BinarySensorDeviceClass.MOTION,
     ),
     CAP_CONTACT: BinarySensorEntityDescription(
@@ -40,7 +40,7 @@ async def async_setup_entry(
     entities: list[CozifyHubBinarySensor] = []
 
     for device_id, device in coordinator.data.items():
-        caps = device.get("capabilities", [])
+        caps = device.get("capabilities", {}).get("values", [])
         for cap, description in BINARY_SENSOR_DESCRIPTIONS.items():
             if cap in caps:
                 entities.append(

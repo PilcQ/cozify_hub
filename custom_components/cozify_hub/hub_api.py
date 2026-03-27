@@ -1,4 +1,4 @@
-"""Cozify HUB local API client."""
+"""Cozify HUB local API client with cloud authentication."""
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +9,8 @@ import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
-BASE_PATH = "/cc/1.14"
+CLOUD_BASE = "https://api.cozify.fi/ui/0.2"
+HUB_BASE_PATH = "/cc/1.14"
 DEFAULT_PORT = 8893
 DEFAULT_TIMEOUT = 10
 
@@ -26,22 +27,73 @@ class CozifyHubAuthError(CozifyHubError):
     """Exception for authentication errors."""
 
 
+class CozifyCloudAPI:
+    """Cozify Cloud API client for authentication."""
+
+    def __init__(self, session: aiohttp.ClientSession) -> None:
+        self._session = session
+
+    async def request_otp(self, email: str) -> None:
+        """Request OTP to be sent to email."""
+        try:
+            async with asyncio.timeout(DEFAULT_TIMEOUT):
+                async with self._session.get(
+                    f"{CLOUD_BASE}/user/requestlogin",
+                    params={"email": email},
+                ) as resp:
+                    resp.raise_for_status()
+        except aiohttp.ClientError as err:
+            raise CozifyHubConnectionError(f"Failed to request OTP: {err}") from err
+
+    async def email_login(self, email: str, otp: str) -> str:
+        """Login with email and OTP, return cloud token (JWT)."""
+        try:
+            async with asyncio.timeout(DEFAULT_TIMEOUT):
+                async with self._session.post(
+                    f"{CLOUD_BASE}/user/emaillogin",
+                    data={"email": email, "password": otp},
+                ) as resp:
+                    if resp.status in (401, 403):
+                        raise CozifyHubAuthError("Invalid OTP or email")
+                    resp.raise_for_status()
+                    token = await resp.text()
+                    return token.strip().strip('"')
+        except aiohttp.ClientError as err:
+            raise CozifyHubConnectionError(f"Login failed: {err}") from err
+
+    async def get_hub_keys(self, cloud_token: str) -> dict[str, str]:
+        """Get hub_id -> hub_token mapping from cloud."""
+        try:
+            async with asyncio.timeout(DEFAULT_TIMEOUT):
+                async with self._session.get(
+                    f"{CLOUD_BASE}/user/hubkeys",
+                    headers={"Authorization": cloud_token},
+                ) as resp:
+                    if resp.status in (401, 403):
+                        raise CozifyHubAuthError("Invalid cloud token")
+                    resp.raise_for_status()
+                    return await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise CozifyHubConnectionError(f"Failed to get hub keys: {err}") from err
+
+
 class CozifyHubAPI:
     """Cozify HUB local REST API client."""
 
     def __init__(
         self,
         host: str,
-        hub_token: str,
+        cloud_token: str,
         port: int = DEFAULT_PORT,
         session: aiohttp.ClientSession | None = None,
     ) -> None:
         self._host = host
         self._port = port
-        self._hub_token = hub_token
+        self._cloud_token = cloud_token
         self._session = session
         self._own_session = session is None
-        self._base_url = f"http://{host}:{port}{BASE_PATH}"
+        self._hub_url = f"http://{host}:{port}"
+        self._api_url = f"http://{host}:{port}{HUB_BASE_PATH}"
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -54,35 +106,31 @@ class CozifyHubAPI:
             await self._session.close()
 
     def _headers(self) -> dict[str, str]:
-        return {"Content-Type": "application/json"}
+        return {
+            "Authorization": self._cloud_token,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
 
-    def _params(self, extra: dict | None = None) -> dict[str, str]:
-        """Return query params including the hub token."""
-        params = {"token": self._hub_token}
-        if extra:
-            params.update(extra)
-        return params
+    def update_token(self, cloud_token: str) -> None:
+        """Update the cloud token."""
+        self._cloud_token = cloud_token
 
-    def _check_auth_error(self, data: Any) -> None:
-        """Raise auth error if the hub returned an authentication failure."""
-        if isinstance(data, dict) and data.get("code") == 1:
-            msg = data.get("message", "")
-            if "Authentication" in msg:
-                raise CozifyHubAuthError(msg)
-
-    async def _get(self, path: str) -> Any:
+    async def _get(self, path: str, use_api_base: bool = True) -> Any:
         session = await self._get_session()
-        url = f"{self._base_url}{path}"
+        base = self._api_url if use_api_base else self._hub_url
+        url = f"{base}{path}"
         try:
             async with asyncio.timeout(DEFAULT_TIMEOUT):
-                async with session.get(
-                    url, headers=self._headers(), params=self._params()
-                ) as resp:
-                    if resp.status == 401:
-                        raise CozifyHubAuthError("Invalid hub token")
+                async with session.get(url, headers=self._headers()) as resp:
+                    if resp.status in (401, 403):
+                        raise CozifyHubAuthError("Invalid or expired token")
                     resp.raise_for_status()
                     data = await resp.json(content_type=None)
-                    self._check_auth_error(data)
+                    if isinstance(data, dict) and data.get("code") == 1:
+                        msg = data.get("message", "")
+                        if "Authentication" in msg or "auth" in msg.lower():
+                            raise CozifyHubAuthError(msg)
                     return data
         except asyncio.TimeoutError as err:
             raise CozifyHubConnectionError(f"Timeout connecting to {url}") from err
@@ -91,38 +139,36 @@ class CozifyHubAPI:
 
     async def _put(self, path: str, data: Any) -> Any:
         session = await self._get_session()
-        url = f"{self._base_url}{path}"
+        url = f"{self._api_url}{path}"
         try:
             async with asyncio.timeout(DEFAULT_TIMEOUT):
                 async with session.put(
-                    url, headers=self._headers(), params=self._params(), json=data
+                    url, headers=self._headers(), json=data
                 ) as resp:
-                    if resp.status == 401:
-                        raise CozifyHubAuthError("Invalid hub token")
+                    if resp.status in (401, 403):
+                        raise CozifyHubAuthError("Invalid or expired token")
                     resp.raise_for_status()
                     text = await resp.text()
                     if text:
-                        result = await resp.json(content_type=None)
-                        self._check_auth_error(result)
-                        return result
+                        return await resp.json(content_type=None)
                     return None
         except asyncio.TimeoutError as err:
             raise CozifyHubConnectionError(f"Timeout connecting to {url}") from err
         except aiohttp.ClientError as err:
             raise CozifyHubConnectionError(f"Error connecting to {url}: {err}") from err
 
+    async def get_hub_info(self) -> dict[str, Any]:
+        """Return hub info — public endpoint, no auth needed."""
+        return await self._get("/hub", use_api_base=False)
+
     async def get_devices(self) -> dict[str, Any]:
         """Return all devices from the hub."""
         return await self._get("/devices")
 
-    async def get_hub_info(self) -> dict[str, Any]:
-        """Return hub information by fetching devices (no /hub endpoint)."""
-        return await self._get("/devices")
-
     async def ping(self) -> bool:
-        """Ping the hub to verify connectivity."""
+        """Ping the hub using the public /hub endpoint."""
         try:
-            await self._get("/devices")
+            await self._get("/hub", use_api_base=False)
             return True
         except CozifyHubError:
             return False

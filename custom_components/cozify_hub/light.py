@@ -33,7 +33,7 @@ async def async_setup_entry(
 
     entities = []
     for device_id, device in coordinator.data.items():
-        caps = device.get("capabilities", [])
+        caps = device.get("capabilities", {}).get("values", [])
         if CAP_ON_OFF in caps and (
             CAP_BRIGHTNESS in caps or CAP_COLOR_HS in caps or CAP_COLOR_TEMP in caps
             or device.get("type", "").lower() in ("light", "dimmer", "rgb", "rgbw")
@@ -50,7 +50,7 @@ class CozifyHubLight(CozifyHubEntity, LightEntity):
 
     def __init__(self, coordinator: CozifyHubCoordinator, device_id: str) -> None:
         super().__init__(coordinator, device_id)
-        caps = self.device_data.get("capabilities", [])
+        caps = self.device_data.get("capabilities", {}).get("values", [])
         self._update_color_modes(caps)
 
     def _update_color_modes(self, caps: list[str]) -> None:

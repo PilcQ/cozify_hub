@@ -31,7 +31,7 @@ async def async_setup_entry(
     entities = [
         CozifyHubCover(coordinator, device_id)
         for device_id, device in coordinator.data.items()
-        if CAP_COVER in device.get("capabilities", [])
+        if CAP_COVER in device.get("capabilities", {}).get("values", [])
     ]
     async_add_entities(entities)
 

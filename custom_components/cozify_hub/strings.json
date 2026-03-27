@@ -3,17 +3,24 @@
     "step": {
       "user": {
         "title": "Connect to Cozify HUB",
-        "description": "Enter your Cozify HUB local IP address and the hub token from the Cozify app.",
+        "description": "Enter your Cozify account email and the local IP address of your hub.",
         "data": {
+          "email": "Cozify Account Email",
           "hub_host": "Hub IP Address or Hostname",
-          "hub_token": "Hub Token",
           "hub_port": "Port (default: 8893)"
+        }
+      },
+      "otp": {
+        "title": "Enter OTP",
+        "description": "An OTP code has been sent to {email}. Enter it below.",
+        "data": {
+          "otp": "One-Time Password (from email)"
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to the Cozify HUB. Check the IP address and port.",
-      "invalid_auth": "Invalid hub token. Please check your token in the Cozify app.",
+      "invalid_auth": "Invalid OTP or email address.",
       "unknown": "Unexpected error occurred."
     },
     "abort": {
