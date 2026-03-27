@@ -22,7 +22,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: CozifyHubConfigEntry) ->
     port = entry.data.get(CONF_HUB_PORT, DEFAULT_PORT)
 
     api = CozifyHubAPI(host=host, cloud_token=cloud_token, port=port)
-    coordinator = CozifyHubCoordinator(hass, api)
+    coordinator = CozifyHubCoordinator(hass, api, entry)
 
     await coordinator.async_config_entry_first_refresh()
 
