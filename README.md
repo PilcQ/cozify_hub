@@ -140,4 +140,4 @@ The hardware and software configurations are modularly selectable and will vary 
 This is a community-driven integration. If you find any bugs or want to improve it further, please create an "Issue" on GitHub.
 
 ---
-*Note: This integration is officially supported by Cozify Oy.*
+*Note: This integration is (SOON) officially supported by Cozify Oy. You are already welcome to try this...*
