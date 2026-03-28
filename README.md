@@ -5,6 +5,8 @@
 [![License](https://img.shields.io/github/license/PilcQ/cozify_hub?style=plastic)](https://github.com/PilcQ/cozify_hub/blob/main/LICENSE)
 <br />
 
+This is still a work in progress, once more complite will be moved to official GitRepo. Still please try and let us know what you think.
+
 # Cozify HUB — Home Assistant HACS Integration
 
 A Home Assistant custom integration for the **Cozify HUB** smart home hub, installable via [HACS](https://hacs.xyz/).
@@ -18,6 +20,8 @@ A Home Assistant custom integration for the **Cozify HUB** smart home hub, insta
 - **Covers** — blinds/shades open, close, stop, set position
 - Local polling every 30 seconds (no cloud dependency after setup)
 - UI-based configuration via Settings → Integrations
+
+![Example view of the Cozify HUB Home Assistant](images/Cozify_HUB_Home_Assistant.png)
 
 ## Requirements
 
@@ -96,6 +100,44 @@ logger:
 
 Pull requests are welcome! Please open an issue first to discuss what you'd like to change.
 
-## License
+## Cozify HUB
 
-MIT
+Cozify HAN is a Nordic, Finnish key-flag product that supports the most modern wireless automation technologies and traditional property automation standards. 
+The hardware and software configurations are modularly selectable and will vary between different models (DIN, ZEN, ION).
+
+### Key features
+
+- System maintains operational capability in case of errors with the help of HW-level watchdog. Built-in HW watchdog self-heals the system from sw/hw jams
+- Offers two-way, real-time, expandable, and continuously increasing support for different building automation technologies
+- Internal backup battery for electrical outages
+- Example protocols: BACnet/IP, oBIX, KNX, System vendors' HTTP/REST- and Websocket-interfaces
+- No cloud dependency for normal operation
+- More: `https://en.cozify.fi/pages/iot-controllers`
+
+### Wireless protocols
+
+- Z-Wave, Zigbee 3.0, On/Off Keying, Somfy RTS
+
+### Wired protocol
+
+- Modbus RTU, M-Bus, BACnet/IP, HTTPS/REST
+
+### External connectors
+
+- 2 x 10/100 Mbps Ethernet, RS-232, RS-485, M-Bus, DI (3-12V / GND), USB 2.0 Host, Type A
+
+### Radios
+
+-4 x 2.5Ghz, Z-Wave, 433Mhz, 868Mhz, Optional 4/5G Cellular modem
+-External antennas for selected radios
+
+### Internal Connectors
+
+-PCIe Connector, Raspberry Pi 40 pin GPIO header
+
+### Development and Support
+
+This is a community-driven integration. If you find any bugs or want to improve it further, please create an "Issue" on GitHub.
+
+---
+*Note: This integration is officially supported by Cozify Oy.*
