@@ -33,7 +33,7 @@ A Home Assistant custom integration for the **Cozify HUB** smart home hub, insta
 
 1. Open HACS in Home Assistant
 2. Go to **Integrations** → click the three-dot menu → **Custom repositories**
-3. Add `https://github.com/PilcQ/cozify_hub` as an **Integration**
+3. Add <https://github.com/PilcQ/cozify_hub> as an **Integration**
 4. Search for **Cozify HUB** and install it
 5. Restart Home Assistant
 
@@ -80,7 +80,7 @@ After setup, all device communication happens **locally** on your network. No cl
 
 ## Troubleshooting
 
-- **Cannot connect** — make sure your Cozify HUB is reachable at the IP you entered. Try `http://<ip>:8893/hub` in your browser — it should return JSON.
+- **Cannot connect** — make sure your Cozify HUB is reachable at the IP you entered. Try `http://<hub-ip>:8893/hub` in your browser — it should return JSON.
 - **Invalid OTP** — OTPs are single-use and expire quickly. Start the setup again to request a new one.
 - **Already configured** — if you see this, the integration was already set up successfully. Close the dialog and check Settings → Devices & Services.
 - Check Home Assistant logs under **Settings → System → Logs** and filter for `cozify_hub` for detailed errors.
@@ -112,7 +112,7 @@ The hardware and software configurations are modularly selectable and will vary 
 - Internal backup battery for electrical outages
 - Example protocols: BACnet/IP, oBIX, KNX, System vendors' HTTP/REST- and Websocket-interfaces
 - No cloud dependency for normal operation
-- More: `https://en.cozify.fi/pages/iot-controllers`
+- More: <https://en.cozify.fi/pages/iot-controllers>
 
 ### Wireless protocols
 
