@@ -97,10 +97,13 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                 except Exception as err:
                     _LOGGER.debug("LAN IP discovery failed: %s", err)
 
-                # Build hub list — filter out HAN devices by checking /han endpoint
+                # Filter out HAN IPs first
+                hub_ips = [ip for ip in lan_ips if not await self._is_han_device(ip)]
+                _LOGGER.debug("Non-HAN IPs after filtering: %s", hub_ips)
+
+                # Get cloud name for each hub
                 self._hubs = {}
-                for i, (hub_id, hub_token) in enumerate(hub_keys.items()):
-                    lan_ip = lan_ips[i] if i < len(lan_ips) else None
+                for hub_id, hub_token in hub_keys.items():
                     name = f"Cozify HUB ({hub_id[:8]})"
                     try:
                         info = await auth.get_hub_info_cloud(self._cloud_token, hub_token)
@@ -108,17 +111,33 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                     except Exception as err:
                         _LOGGER.debug("Cloud info failed for %s: %s", hub_id[:8], err)
 
-                    # Check if this IP belongs to a HAN device — if so, skip it
-                    if lan_ip and await self._is_han_device(lan_ip):
-                        _LOGGER.debug("Skipping HAN device at %s (hub_id %s)", lan_ip, hub_id[:8])
+                    # Try each remaining IP to find which one belongs to this hub token
+                    matched_ip = None
+                    for ip in hub_ips:
+                        try:
+                            local_info = await auth.get_hub_info_local(ip, hub_token)
+                            if local_info.get("reachable"):
+                                matched_ip = ip
+                                name = local_info.get("name", name)
+                                _LOGGER.debug("Matched hub %s to IP %s", hub_id[:8], ip)
+                                break
+                        except Exception:
+                            pass
+
+                    if matched_ip is None and not hub_ips:
+                        # No local IPs at all — include with no IP (cloud-only)
+                        pass
+                    elif matched_ip is None:
+                        # Has IPs but none matched — skip this hub
+                        _LOGGER.debug("No IP matched for hub %s — skipping", hub_id[:8])
                         continue
 
                     self._hubs[hub_id] = {
                         "token": hub_token,
                         "name": name,
-                        "lan_ip": lan_ip,
+                        "lan_ip": matched_ip,
                     }
-                    _LOGGER.debug("Hub %s: name=%s lan_ip=%s", hub_id[:8], name, lan_ip)
+                    _LOGGER.debug("Hub %s: name=%s lan_ip=%s", hub_id[:8], name, matched_ip)
 
                 if not self._hubs:
                     errors["base"] = "no_hubs"
