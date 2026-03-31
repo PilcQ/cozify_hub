@@ -1,7 +1,7 @@
 {
   "domain": "cozify_hub",
   "name": "Cozify HUB",
-  "version": "2.0.0",
+  "version": "0.1.1",
   "config_flow": true,
   "documentation": "https://github.com/PilcQ/cozify_hub",
   "issue_tracker": "https://github.com/PilcQ/cozify_hub/issues",
@@ -9,6 +9,5 @@
   "codeowners": ["@PilcQ"],
   "requirements": ["aiohttp>=3.8.0"],
   "iot_class": "local_polling",
-  "homeassistant": "2024.1.0",
-  "license": "MIT"
+  "homeassistant": "2024.1.0"
 }
