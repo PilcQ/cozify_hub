@@ -1,7 +1,7 @@
 """Light platform for Cozify HUB."""
 from __future__ import annotations
 
-import logging
+import math
 from typing import Any
 
 from homeassistant.components.light import (
@@ -10,62 +10,50 @@ from homeassistant.components.light import (
     ATTR_HS_COLOR,
     ColorMode,
     LightEntity,
-    LightEntityFeature,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import CozifyHubConfigEntry
-from .const import CAP_BRIGHTNESS, CAP_COLOR_HS, CAP_COLOR_TEMP, CAP_ON_OFF
+from .const import DOMAIN
 from .coordinator import CozifyHubCoordinator
 from .entity import CozifyHubEntity
 
-_LOGGER = logging.getLogger(__name__)
 
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: CozifyHubConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up Cozify HUB lights."""
-    coordinator = entry.runtime_data
-
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
+                             async_add_entities: AddEntitiesCallback) -> None:
+    coordinator: CozifyHubCoordinator = hass.data[DOMAIN][entry.entry_id]
     entities = []
-    for device_id, device in coordinator.data.items():
-        caps = device.get("capabilities", {}).get("values", [])
-        if CAP_ON_OFF in caps and (
-            CAP_BRIGHTNESS in caps or CAP_COLOR_HS in caps or CAP_COLOR_TEMP in caps
-            or device.get("type", "").lower() in ("light", "dimmer", "rgb", "rgbw")
-        ):
+    for device_id, device in coordinator.data["devices"].items():
+        caps = device.get("capabilities", [])
+        dtype = device.get("type", "")
+        if (dtype in ("LIGHT", "DIMMER") or
+                any(c in caps for c in ("BRIGHTNESS", "COLOR_HS", "COLOR_TEMP"))):
             entities.append(CozifyHubLight(coordinator, device_id))
-
     async_add_entities(entities)
 
 
 class CozifyHubLight(CozifyHubEntity, LightEntity):
-    """Representation of a Cozify HUB light."""
+    """Cozify HUB light."""
 
-    _attr_name = None
+    _attr_min_color_temp_kelvin = 2000
+    _attr_max_color_temp_kelvin = 6500
 
     def __init__(self, coordinator: CozifyHubCoordinator, device_id: str) -> None:
         super().__init__(coordinator, device_id)
-        caps = self.device_data.get("capabilities", {}).get("values", [])
-        self._update_color_modes(caps)
-
-    def _update_color_modes(self, caps: list[str]) -> None:
-        """Determine supported color modes from capabilities."""
+        self._attr_unique_id = device_id
+        self._attr_name = self._device.get("name", device_id)
+        caps = self._device.get("capabilities", [])
         modes: set[ColorMode] = set()
-        if CAP_COLOR_HS in caps:
+        if "COLOR_HS" in caps:
             modes.add(ColorMode.HS)
-        if CAP_COLOR_TEMP in caps:
+        if "COLOR_TEMP" in caps:
             modes.add(ColorMode.COLOR_TEMP)
-        if CAP_BRIGHTNESS in caps and not modes:
+        if not modes and "BRIGHTNESS" in caps:
             modes.add(ColorMode.BRIGHTNESS)
         if not modes:
             modes.add(ColorMode.ONOFF)
         self._attr_supported_color_modes = modes
-        # Set default color mode
         if ColorMode.HS in modes:
             self._attr_color_mode = ColorMode.HS
         elif ColorMode.COLOR_TEMP in modes:
@@ -76,58 +64,45 @@ class CozifyHubLight(CozifyHubEntity, LightEntity):
             self._attr_color_mode = ColorMode.ONOFF
 
     @property
-    def is_on(self) -> bool | None:
-        state = self.device_data.get("state", {})
-        return state.get("isOn")
+    def is_on(self) -> bool:
+        return self._device.get("is_on", False)
 
     @property
     def brightness(self) -> int | None:
-        state = self.device_data.get("state", {})
-        bri = state.get("brightness")
-        if bri is not None:
-            return round(bri / 100 * 255)
-        return None
+        b = self._device.get("brightness")
+        return int(b * 255) if b is not None else None
 
     @property
     def hs_color(self) -> tuple[float, float] | None:
-        state = self.device_data.get("state", {})
-        color = state.get("color")
-        if color:
-            return (color.get("hue", 0), color.get("saturation", 0))
+        hue = self._device.get("hue")
+        sat = self._device.get("saturation")
+        if hue is not None and sat is not None:
+            return (hue * 180.0 / math.pi, sat * 100.0)
         return None
 
     @property
     def color_temp_kelvin(self) -> int | None:
-        state = self.device_data.get("state", {})
-        return state.get("colorTemperature")
-
-    @property
-    def min_color_temp_kelvin(self) -> int:
-        return 2700
-
-    @property
-    def max_color_temp_kelvin(self) -> int:
-        return 6500
+        if self._device.get("color_mode") == "ct":
+            return self._device.get("color_temperature")
+        return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on the light."""
         api = self.coordinator.api
-        await api.device_on(self._device_id)
-
-        if ATTR_BRIGHTNESS in kwargs:
-            bri = round(kwargs[ATTR_BRIGHTNESS] / 255 * 100)
-            await api.set_brightness(self._device_id, bri)
-
         if ATTR_HS_COLOR in kwargs:
-            h, s = kwargs[ATTR_HS_COLOR]
-            await api.set_color(self._device_id, h, s)
-
-        if ATTR_COLOR_TEMP_KELVIN in kwargs:
-            await api.set_color_temp(self._device_id, kwargs[ATTR_COLOR_TEMP_KELVIN])
-
+            h_deg, s_pct = kwargs[ATTR_HS_COLOR]
+            h_rad = h_deg * math.pi / 180.0
+            sat = s_pct / 100.0
+            bri = kwargs[ATTR_BRIGHTNESS] / 255.0 if ATTR_BRIGHTNESS in kwargs else None
+            await api.set_color_hs(self._device_id, h_rad, sat, bri)
+        elif ATTR_COLOR_TEMP_KELVIN in kwargs:
+            bri = kwargs[ATTR_BRIGHTNESS] / 255.0 if ATTR_BRIGHTNESS in kwargs else None
+            await api.set_color_temperature(self._device_id, kwargs[ATTR_COLOR_TEMP_KELVIN], bri)
+        elif ATTR_BRIGHTNESS in kwargs:
+            await api.set_brightness(self._device_id, kwargs[ATTR_BRIGHTNESS] / 255.0)
+        else:
+            await api.turn_on(self._device_id)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn off the light."""
-        await self.coordinator.api.device_off(self._device_id)
+        await self.coordinator.api.turn_off(self._device_id)
         await self.coordinator.async_request_refresh()

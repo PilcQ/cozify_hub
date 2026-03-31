@@ -2,26 +2,49 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Cozify HUB",
-        "description": "Enter your Cozify account email and the local IP address of your hub.",
+        "title": "Cozify HUB — Connection Settings",
+        "description": "Choose how to connect to your Cozify HUB (ION, ZEN or DIN).",
         "data": {
-          "email": "Cozify Account Email",
-          "hub_host": "Hub IP Address or Hostname",
-          "hub_port": "Port (default: 8893)"
+          "connection_mode": "Connection Mode",
+          "api_environment": "API Environment"
         }
       },
-      "otp": {
-        "title": "Enter OTP",
-        "description": "An OTP code has been sent to {email}. Enter it below.",
+      "local": {
+        "title": "Local Connection",
+        "description": "Enter the HUB's local IP address and hub token. The HUB uses HTTPS on port 8893.",
         "data": {
-          "otp": "One-Time Password (from email)"
+          "hub_host": "HUB IP Address",
+          "hub_token": "HUB Token"
+        }
+      },
+      "cloud_email": {
+        "title": "Cloud Login — Email",
+        "description": "Enter your Cozify account email to receive a one-time login code.",
+        "data": {
+          "email": "Email Address"
+        }
+      },
+      "cloud_otp": {
+        "title": "Cloud Login — OTP",
+        "description": "A login code has been sent to {email}. Enter it below.",
+        "data": {
+          "otp": "One-Time Password"
+        }
+      },
+      "select_hub": {
+        "title": "Select HUB",
+        "description": "Multiple HUBs found. Choose which one to configure.",
+        "data": {
+          "hub": "Cozify HUB"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the Cozify HUB. Check the IP address and port.",
-      "invalid_auth": "Invalid OTP or email address.",
-      "unknown": "Unexpected error occurred."
+      "cannot_connect": "Cannot connect. Check IP address and network.",
+      "hub_offline": "HUB is reachable but appears offline.",
+      "invalid_auth": "Invalid login code or token.",
+      "no_hubs": "No HUB devices found for this account.",
+      "unknown": "Unexpected error. Check logs for details."
     },
     "abort": {
       "already_configured": "This Cozify HUB is already configured."

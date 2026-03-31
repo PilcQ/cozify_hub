@@ -1,160 +1,218 @@
-"""Config flow for Cozify HUB integration."""
+"""Config flow for Cozify HUB."""
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_EMAIL
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_CLOUD_TOKEN, CONF_HUB_HOST, CONF_HUB_ID, CONF_HUB_PORT, CONF_HUB_TOKEN, DEFAULT_PORT, DOMAIN
-from .hub_api import CozifyCloudAPI, CozifyHubAPI, CozifyHubAuthError, CozifyHubConnectionError
+from .api import CozifyHubAuth, CozifyHubApiError, CozifyHubAuthError
+from .const import (
+    API_ENVIRONMENT_DEVELOPMENT,
+    API_ENVIRONMENT_PRODUCTION,
+    CONF_API_ENVIRONMENT,
+    CONF_CLOUD_TOKEN,
+    CONF_CONNECTION_MODE,
+    CONF_EMAIL,
+    CONF_HUB_HOST,
+    CONF_HUB_ID,
+    CONF_HUB_NAME,
+    CONF_HUB_TOKEN,
+    CONNECTION_MODE_CLOUD,
+    CONNECTION_MODE_LOCAL,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_SCHEMA = vol.Schema({
-    vol.Required(CONF_EMAIL): str,
-    vol.Required(CONF_HUB_HOST): str,
-    vol.Optional(CONF_HUB_PORT, default=DEFAULT_PORT): int,
-})
-
-STEP_OTP_SCHEMA = vol.Schema({
-    vol.Required("otp"): str,
-})
-
 
 class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Cozify HUB."""
+    """Handle config flow for Cozify HUB."""
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self) -> None:
-        self._email: str = ""
-        self._host: str = ""
-        self._port: int = DEFAULT_PORT
+        self._connection_mode = CONNECTION_MODE_LOCAL
+        self._api_environment = API_ENVIRONMENT_PRODUCTION
+        self._email: str | None = None
+        self._cloud_token: str | None = None
+        self._hubs: dict[str, dict[str, Any]] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 1: ask for email and hub IP."""
-        errors: dict[str, str] = {}
-
+        """Step 1: choose connection mode."""
         if user_input is not None:
-            self._email = user_input[CONF_EMAIL]
-            self._host = user_input[CONF_HUB_HOST]
-            self._port = user_input.get(CONF_HUB_PORT, DEFAULT_PORT)
-
-            session = aiohttp.ClientSession()
-            try:
-                hub_url = f"http://{self._host}:{self._port}/hub"
-                _LOGGER.debug("Testing hub connectivity at %s", hub_url)
-                async with session.get(hub_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status != 200:
-                        errors["base"] = "cannot_connect"
-                    else:
-                        cloud = CozifyCloudAPI(session)
-                        await cloud.request_otp(self._email)
-                        return await self.async_step_otp()
-            except aiohttp.ClientError as err:
-                _LOGGER.error("Cannot connect to hub: %s", err)
-                errors["base"] = "cannot_connect"
-            except CozifyHubConnectionError as err:
-                _LOGGER.error("OTP request failed: %s", err)
-                errors["base"] = "cannot_connect"
-            except Exception as err:
-                _LOGGER.exception("Unexpected error: %s", err)
-                errors["base"] = "unknown"
-            finally:
-                await session.close()
+            self._connection_mode = user_input["connection_mode"]
+            self._api_environment = user_input.get("api_environment", API_ENVIRONMENT_PRODUCTION)
+            if self._connection_mode == CONNECTION_MODE_LOCAL:
+                return await self.async_step_local()
+            return await self.async_step_cloud_email()
 
         return self.async_show_form(
             step_id="user",
-            data_schema=STEP_USER_SCHEMA,
+            data_schema=vol.Schema({
+                vol.Required("connection_mode", default=CONNECTION_MODE_LOCAL): vol.In({
+                    CONNECTION_MODE_LOCAL: "Local (direct to HUB on LAN)",
+                    CONNECTION_MODE_CLOUD: "Cloud (via Cozify Cloud)",
+                }),
+                vol.Required("api_environment", default=API_ENVIRONMENT_PRODUCTION): vol.In({
+                    API_ENVIRONMENT_PRODUCTION: "Production",
+                    API_ENVIRONMENT_DEVELOPMENT: "Development",
+                }),
+            }),
+        )
+
+    # ── LOCAL MODE ──
+
+    async def async_step_local(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Local: enter hub IP and token."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            hub_host = user_input["hub_host"]
+            hub_token = user_input["hub_token"]
+            session = async_get_clientsession(self.hass)
+            auth = CozifyHubAuth(session, self._api_environment)
+            try:
+                info = await auth.get_hub_info_local(hub_host, hub_token)
+                if not info.get("reachable"):
+                    errors["base"] = "cannot_connect"
+                elif not info.get("online"):
+                    errors["base"] = "hub_offline"
+                else:
+                    hub_name = info.get("name", f"Cozify HUB ({hub_host})")
+                    hub_id = info.get("hubId", hub_host)
+                    await self.async_set_unique_id(hub_id)
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=f"{hub_name} (Local)",
+                        data={
+                            CONF_CONNECTION_MODE: CONNECTION_MODE_LOCAL,
+                            CONF_API_ENVIRONMENT: self._api_environment,
+                            CONF_HUB_ID: hub_id,
+                            CONF_HUB_TOKEN: hub_token,
+                            CONF_HUB_NAME: hub_name,
+                            CONF_HUB_HOST: hub_host,
+                        },
+                    )
+            except Exception as err:
+                _LOGGER.error("Local connection failed: %s", err)
+                errors["base"] = "cannot_connect"
+
+        return self.async_show_form(
+            step_id="local",
+            data_schema=vol.Schema({
+                vol.Required("hub_host"): str,
+                vol.Required("hub_token"): str,
+            }),
             errors=errors,
         )
 
-    async def async_step_otp(
+    # ── CLOUD MODE ──
+
+    async def async_step_cloud_email(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 2: ask for OTP from email."""
+        """Cloud: enter email."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            email = user_input["email"]
+            session = async_get_clientsession(self.hass)
+            auth = CozifyHubAuth(session, self._api_environment)
+            try:
+                await auth.request_otp(email)
+                self._email = email
+                return await self.async_step_cloud_otp()
+            except Exception as err:
+                _LOGGER.error("OTP request failed: %s", err)
+                errors["base"] = "cannot_connect"
+
+        return self.async_show_form(
+            step_id="cloud_email",
+            data_schema=vol.Schema({vol.Required("email"): str}),
+            errors=errors,
+        )
+
+    async def async_step_cloud_otp(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Cloud: enter OTP."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             otp = user_input["otp"]
-            session = aiohttp.ClientSession()
+            session = async_get_clientsession(self.hass)
+            auth = CozifyHubAuth(session, self._api_environment)
             try:
-                cloud = CozifyCloudAPI(session)
+                self._cloud_token = await auth.verify_otp(self._email, otp)
+                hub_keys = await auth.get_hub_keys(self._cloud_token)
+                _LOGGER.debug("Hub keys: %s", list(hub_keys.keys()))
 
-                # Step 1: get cloud token
-                _LOGGER.debug("Logging in with email+OTP")
-                cloud_token = await cloud.email_login(self._email, otp)
-                _LOGGER.debug("Cloud login successful")
+                for hub_id, hub_token in hub_keys.items():
+                    info = await auth.get_hub_info_cloud(self._cloud_token, hub_token)
+                    self._hubs[hub_id] = {
+                        "token": hub_token,
+                        "name": info.get("name", hub_id[:8]),
+                        "online": info.get("online", False),
+                    }
 
-                # Step 2: get hub-specific token from cloud
-                _LOGGER.debug("Fetching hub keys from cloud")
-                hub_keys = await cloud.get_hub_keys(cloud_token)
-                _LOGGER.debug("Hub keys received: %s", list(hub_keys.keys()))
-
-                # Step 3: get hub info to find hub_id and name
-                # Use cloud token for /hub (public endpoint needs no auth)
-                api = CozifyHubAPI(
-                    host=self._host,
-                    cloud_token=cloud_token,
-                    port=self._port,
-                    session=session,
-                )
-                hub_info = await api.get_hub_info()
-                hub_id = hub_info.get("hubId", self._host)
-                hub_name = hub_info.get("name", f"Cozify HUB ({self._host})")
-                _LOGGER.debug("Hub ID: %s, Name: %s", hub_id, hub_name)
-
-                # Step 4: get the hub-specific token for this hub
-                hub_token = hub_keys.get(hub_id)
-                if not hub_token and hub_keys:
-                    hub_token = next(iter(hub_keys.values()))
-                    _LOGGER.warning("Hub ID not in keys, using first available key")
-
-                if not hub_token:
-                    _LOGGER.error("No hub token found in keys: %s", hub_keys)
-                    errors["base"] = "invalid_auth"
+                if not self._hubs:
+                    errors["base"] = "no_hubs"
+                elif len(self._hubs) == 1:
+                    hub_id = list(self._hubs.keys())[0]
+                    return await self._create_cloud_entry(hub_id)
                 else:
-                    # Step 5: verify hub token works for /devices
-                    _LOGGER.debug("Testing hub token against /devices")
-                    api.update_token(hub_token)
-                    devices = await api.get_devices()
-                    _LOGGER.debug("Devices fetched successfully: %s devices", len(devices))
+                    return await self.async_step_select_hub()
 
-                    await self.async_set_unique_id(hub_id)
-                    self._abort_if_unique_id_configured()
-
-                    return self.async_create_entry(
-                        title=hub_name,
-                        data={
-                            CONF_EMAIL: self._email,
-                            CONF_HUB_HOST: self._host,
-                            CONF_HUB_PORT: self._port,
-                            CONF_CLOUD_TOKEN: cloud_token,
-                            CONF_HUB_TOKEN: hub_token,
-                            CONF_HUB_ID: hub_id,
-                        },
-                    )
-            except CozifyHubAuthError as err:
-                _LOGGER.error("Auth error: %s", err)
+            except CozifyHubAuthError:
                 errors["base"] = "invalid_auth"
-            except CozifyHubConnectionError as err:
-                _LOGGER.error("Connection error: %s", err)
-                errors["base"] = "cannot_connect"
             except Exception as err:
-                _LOGGER.exception("Unexpected error: %s", err)
+                _LOGGER.exception("OTP verification failed: %s", err)
                 errors["base"] = "unknown"
-            finally:
-                await session.close()
 
         return self.async_show_form(
-            step_id="otp",
-            data_schema=STEP_OTP_SCHEMA,
+            step_id="cloud_otp",
+            data_schema=vol.Schema({vol.Required("otp"): str}),
             errors=errors,
-            description_placeholders={"email": self._email},
+            description_placeholders={"email": self._email or ""},
+        )
+
+    async def async_step_select_hub(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Cloud: select which hub if multiple."""
+        if user_input is not None:
+            return await self._create_cloud_entry(user_input["hub"])
+
+        return self.async_show_form(
+            step_id="select_hub",
+            data_schema=vol.Schema({
+                vol.Required("hub"): vol.In({
+                    hub_id: f"{info['name']} ({'Online' if info['online'] else 'Offline'})"
+                    for hub_id, info in self._hubs.items()
+                })
+            }),
+        )
+
+    async def _create_cloud_entry(self, hub_id: str) -> ConfigFlowResult:
+        hub_info = self._hubs[hub_id]
+        await self.async_set_unique_id(hub_id)
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=f"{hub_info['name']} (Cloud)",
+            data={
+                CONF_CONNECTION_MODE: CONNECTION_MODE_CLOUD,
+                CONF_API_ENVIRONMENT: self._api_environment,
+                CONF_CLOUD_TOKEN: self._cloud_token,
+                CONF_HUB_ID: hub_id,
+                CONF_HUB_TOKEN: hub_info["token"],
+                CONF_HUB_NAME: hub_info["name"],
+                CONF_EMAIL: self._email,
+            },
         )
