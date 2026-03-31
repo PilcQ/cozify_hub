@@ -13,6 +13,7 @@ A Home Assistant custom integration for the **Cozify HUB** product family (ION, 
 
 > **Note:** This integration is specifically for **Cozify HUB** products. For Cozify HAN products, use the separate `cozify_han` integration.
 
+
 ## Features
 
 | Platform | Devices |
@@ -33,6 +34,8 @@ A Home Assistant custom integration for the **Cozify HUB** product family (ION, 
 |---|---|---|
 | **Local** | Direct connection to HUB on LAN — faster, no internet required | `local_polling` |
 | **Cloud** | Via Cozify Cloud — works remotely | `cloud_push` |
+
+![Example view of the Cozify HUB Home Assistant](images/Cozify_HUB_Home_Assistant.png)
 
 ## Requirements
 
