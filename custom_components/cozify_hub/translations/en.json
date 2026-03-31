@@ -24,12 +24,20 @@
       },
       "hub_ip": {
         "title": "HUB:n IP-osoite",
-        "description": "Anna HUB:n paikallinen IP-osoite. Löytyy reitittimestä tai Cozify-sovelluksesta.",
+        "description": "Automaattinen IP-osoitteen haku epäonnistui laitteelle {hub_name}. Anna HUB:n paikallinen IP-osoite (löytyy reitittimestä tai Cozify-sovelluksesta).",
         "data": {
-          "hub_ip": "IP-osoite (esim. 192.168.1.75)"
+          "hub_ip": "HUB:n IP-osoite (esim. 192.168.1.75)"
         }
       }
     },
     "error": {
       "cannot_connect": "Yhteys epäonnistui. Tarkista IP-osoite ja verkko.",
       "invalid_auth": "Virheellinen kirjautumiskoodi.",
+      "no_hubs": "Tililtä ei löytynyt HUB-laitteita.",
+      "unknown": "Odottamaton virhe. Tarkista lokit."
+    },
+    "abort": {
+      "already_configured": "Tämä Cozify HUB on jo konfiguroitu."
+    }
+  }
+}
