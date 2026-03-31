@@ -100,7 +100,7 @@ Go to **Settings → Devices & Services → Add Integration → Cozify HUB**
 
 ## Changelog
 
-### v2.0.0
+### v0.1.0
 - Full rewrite based on official Cozify API v2 documentation
 - Added local mode (direct HTTPS to hub)
 - Added cloud mode with automatic OTP authentication
@@ -111,7 +111,7 @@ Go to **Settings → Devices & Services → Add Integration → Cozify HUB**
 - Token refresh support
 - Multi-hub support
 
-### v1.0.0
+### v0.0.4
 - Initial release with cloud-only authentication
 
 ---
