@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -96,7 +97,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                 except Exception as err:
                     _LOGGER.debug("LAN IP discovery failed: %s", err)
 
-                # Build hub list — IP index matches hub_keys order
+                # Build hub list — filter out HAN devices by checking /han endpoint
                 self._hubs = {}
                 for i, (hub_id, hub_token) in enumerate(hub_keys.items()):
                     lan_ip = lan_ips[i] if i < len(lan_ips) else None
@@ -106,6 +107,11 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                         name = info.get("name", name)
                     except Exception as err:
                         _LOGGER.debug("Cloud info failed for %s: %s", hub_id[:8], err)
+
+                    # Check if this IP belongs to a HAN device — if so, skip it
+                    if lan_ip and await self._is_han_device(lan_ip):
+                        _LOGGER.debug("Skipping HAN device at %s (hub_id %s)", lan_ip, hub_id[:8])
+                        continue
 
                     self._hubs[hub_id] = {
                         "token": hub_token,
@@ -183,6 +189,24 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={"hub_name": hub_info["name"]},
         )
+
+    async def _is_han_device(self, ip: str) -> bool:
+        """Check if device at IP is a Cozify HAN reader (not a HUB)."""
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(
+                f"http://{ip}/han",
+                timeout=aiohttp.ClientTimeout(total=3),
+                ssl=False,
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    if data.get("type") == "HAN_STATE_MESSAGE":
+                        _LOGGER.debug("Device at %s is a HAN reader", ip)
+                        return True
+        except Exception:
+            pass
+        return False
 
     async def _verify_hub_ip(self, hub_ip: str, hub_token: str) -> bool:
         """Test local connection to hub."""
