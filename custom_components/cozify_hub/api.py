@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import ssl
 from typing import Any
 
 import aiohttp
@@ -61,12 +60,12 @@ class CozifyHubApi:
         if hub_token:
             self._hub_token = hub_token
 
-    def _get_ssl_context(self) -> ssl.SSLContext | bool:
+    def _get_ssl_context(self) -> bool:
+        # Local mode: hub uses self-signed cert — skip verification
+        # aiohttp accepts False to disable SSL verification without
+        # calling the blocking ssl.create_default_context()
         if self._connection_mode == CONNECTION_MODE_LOCAL:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            return ctx
+            return False
         return True
 
     @property
@@ -342,15 +341,12 @@ class CozifyHubAuth:
 
     async def get_hub_info_local(self, hub_host: str, hub_token: str) -> dict[str, Any]:
         """Get hub info via local connection."""
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
         url = f"https://{hub_host}:{COZIFY_LOCAL_API_PORT}/hub"
         try:
             async with self._session.get(
                 url,
                 headers={"Authorization": hub_token},
-                ssl=ssl_ctx,
+                ssl=False,  # Hub uses self-signed cert
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.ok:
