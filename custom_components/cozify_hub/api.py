@@ -89,10 +89,14 @@ class CozifyHubApi:
         kwargs: dict = {"headers": self._headers, "json": data}
         if self._connection_mode != CONNECTION_MODE_LOCAL:
             kwargs["ssl"] = True
+        _LOGGER.debug("Request %s %s token=%s", method, url, self._hub_token[:8] if self._hub_token else "None")
         try:
             async with asyncio.timeout(15):
                 async with self._session.request(method, url, **kwargs) as resp:
+                    _LOGGER.debug("Response %s %s status=%s", method, url, resp.status)
                     if resp.status == 401:
+                        body = await resp.text()
+                        _LOGGER.error("401 response body: %s", body[:200])
                         raise CozifyHubAuthError("Authentication failed — token may be expired")
                     if resp.status == 408:
                         raise CozifyHubConnectionError("Hub not connected to cloud (408)")
