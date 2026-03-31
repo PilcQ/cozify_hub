@@ -85,12 +85,13 @@ class CozifyHubApi:
 
     async def _request(self, method: str, endpoint: str, data: Any = None) -> Any:
         url = self._build_url(endpoint)
+        # Local mode uses HTTP — no SSL needed. Cloud uses HTTPS with SSL.
+        kwargs: dict = {"headers": self._headers, "json": data}
+        if self._connection_mode != CONNECTION_MODE_LOCAL:
+            kwargs["ssl"] = True
         try:
             async with asyncio.timeout(15):
-                async with self._session.request(
-                    method, url, headers=self._headers,
-                    json=data, ssl=self._get_ssl_context(),
-                ) as resp:
+                async with self._session.request(method, url, **kwargs) as resp:
                     if resp.status == 401:
                         raise CozifyHubAuthError("Authentication failed — token may be expired")
                     if resp.status == 408:
@@ -114,11 +115,14 @@ class CozifyHubApi:
         """Get hub information."""
         if self._connection_mode == CONNECTION_MODE_LOCAL:
             url = f"http://{self._hub_host}:{COZIFY_LOCAL_API_PORT}/hub"
+            async with self._session.get(url, headers=self._headers) as resp:
+                resp.raise_for_status()
+                return await resp.json(content_type=None)
         else:
             url = f"{self._cloud_base_url}/hub/remote/hub"
-        async with self._session.get(url, headers=self._headers, ssl=self._get_ssl_context()) as resp:
-            resp.raise_for_status()
-            return await resp.json(content_type=None)
+            async with self._session.get(url, headers=self._headers, ssl=True) as resp:
+                resp.raise_for_status()
+                return await resp.json(content_type=None)
 
     # ── Devices ──
 
