@@ -94,11 +94,11 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                 lan_ips: list[str] = []
                 try:
                     lan_ips = await auth.get_hub_lan_ips(self._cloud_token)
-                    _LOGGER.debug("Auto-discovered LAN IPs: %s", lan_ips)
+                    _LOGGER.debug("LAN IPs from cloud: %s", lan_ips)
                 except Exception as err:
                     _LOGGER.debug("LAN IP auto-discovery failed: %s", err)
 
-                # Get info for each hub
+                # Get info for each hub from cloud
                 self._hubs = {}
                 for hub_id, hub_token in hub_keys.items():
                     info = await auth.get_hub_info_cloud(self._cloud_token, hub_token)
@@ -106,8 +106,23 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                         "token": hub_token,
                         "name": info.get("name", f"Cozify HUB ({hub_id[:8]})"),
                         "online": info.get("online", False),
-                        "lan_ip": lan_ips[0] if lan_ips else None,
+                        "lan_ip": None,
                     }
+
+                # Test each LAN IP against each hub token to find the real HUB
+                # HAN devices and other Cozify devices won't respond to /hub with hubId
+                for ip in lan_ips:
+                    for hub_id, hub_info in self._hubs.items():
+                        if hub_info["lan_ip"]:
+                            continue  # Already found IP for this hub
+                        try:
+                            local_info = await auth.get_hub_info_local(ip, hub_info["token"])
+                            if local_info.get("reachable") and local_info.get("hubId") == hub_id:
+                                _LOGGER.debug("Matched HUB %s to IP %s", hub_id, ip)
+                                hub_info["lan_ip"] = ip
+                                break
+                        except Exception:
+                            pass
 
                 if not self._hubs:
                     errors["base"] = "no_hubs"
@@ -146,11 +161,19 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             # Always go to IP step — let user confirm or enter IP
             return await self.async_step_hub_ip()
 
+        def _hub_label(hub_id: str, info: dict) -> str:
+            status = "Online ✓" if info["online"] else "Offline"
+            if info.get("lan_ip") and info["online"]:
+                return f"{info['name']} — {info['lan_ip']} — Paikallinen — {status}"
+            elif info.get("lan_ip"):
+                return f"{info['name']} — {info['lan_ip']} — Paikallinen — {status}"
+            return f"{info['name']} — Ei paikallista IP:tä — {status}"
+
         return self.async_show_form(
             step_id="select_hub",
             data_schema=vol.Schema({
                 vol.Required("hub"): vol.In({
-                    hub_id: f"{info['name']} ({'Online' if info['online'] else 'Offline'})"
+                    hub_id: _hub_label(hub_id, info)
                     for hub_id, info in self._hubs.items()
                 })
             }),
