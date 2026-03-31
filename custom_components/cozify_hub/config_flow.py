@@ -115,21 +115,9 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                     # Pick hub (or go to selection step if multiple)
                     if len(self._hubs) == 1:
                         self._selected_hub_id = list(self._hubs.keys())[0]
+                        return await self.async_step_hub_ip()
                     else:
                         return await self.async_step_select_hub()
-
-                    # If LAN IP was found, verify it and skip the IP step
-                    hub_info = self._hubs[self._selected_hub_id]
-                    if hub_info.get("lan_ip"):
-                        _LOGGER.debug("LAN IP auto-discovered: %s — verifying", hub_info["lan_ip"])
-                        verified = await self._verify_hub_ip(hub_info["lan_ip"], hub_info["token"])
-                        if verified:
-                            return await self._create_entry(self._selected_hub_id, hub_info["lan_ip"])
-                        else:
-                            _LOGGER.warning("Auto-discovered IP %s did not respond, asking user", hub_info["lan_ip"])
-
-                    # No IP found or verification failed — ask user
-                    return await self.async_step_hub_ip()
 
             except CozifyHubAuthError:
                 errors["base"] = "invalid_auth"
@@ -155,14 +143,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
         """Step 3a (optional): select hub if account has multiple hubs."""
         if user_input is not None:
             self._selected_hub_id = user_input["hub"]
-            hub_info = self._hubs[self._selected_hub_id]
-
-            # Try auto-discovered IP first
-            if hub_info.get("lan_ip"):
-                verified = await self._verify_hub_ip(hub_info["lan_ip"], hub_info["token"])
-                if verified:
-                    return await self._create_entry(self._selected_hub_id, hub_info["lan_ip"])
-
+            # Always go to IP step — let user confirm or enter IP
             return await self.async_step_hub_ip()
 
         return self.async_show_form(
