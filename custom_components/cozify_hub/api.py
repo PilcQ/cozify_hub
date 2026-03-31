@@ -80,7 +80,7 @@ class CozifyHubApi:
 
     def _build_url(self, endpoint: str) -> str:
         if self._connection_mode == CONNECTION_MODE_LOCAL:
-            return f"https://{self._hub_host}:{COZIFY_LOCAL_API_PORT}/cc/{COZIFY_API_VERSION}/{endpoint}"
+            return f"http://{self._hub_host}:{COZIFY_LOCAL_API_PORT}/cc/{COZIFY_API_VERSION}/{endpoint}"
         return f"{self._cloud_base_url}/hub/remote/cc/{COZIFY_API_VERSION}/{endpoint}"
 
     async def _request(self, method: str, endpoint: str, data: Any = None) -> Any:
@@ -113,7 +113,7 @@ class CozifyHubApi:
     async def get_hub_info(self) -> dict[str, Any]:
         """Get hub information."""
         if self._connection_mode == CONNECTION_MODE_LOCAL:
-            url = f"https://{self._hub_host}:{COZIFY_LOCAL_API_PORT}/hub"
+            url = f"http://{self._hub_host}:{COZIFY_LOCAL_API_PORT}/hub"
         else:
             url = f"{self._cloud_base_url}/hub/remote/hub"
         async with self._session.get(url, headers=self._headers, ssl=self._get_ssl_context()) as resp:
@@ -239,7 +239,7 @@ class CozifyHubApi:
     async def poll_device_deltas(self, ts: int, cozify_uuid: str) -> dict[str, Any]:
         """Long-poll for device state deltas. Hub holds connection up to 12s."""
         if self._connection_mode == CONNECTION_MODE_LOCAL:
-            url = f"https://{self._hub_host}:{COZIFY_LOCAL_API_PORT}/cc/{COZIFY_API_VERSION}/hub/poll"
+            url = f"http://{self._hub_host}:{COZIFY_LOCAL_API_PORT}/cc/{COZIFY_API_VERSION}/hub/poll"
         else:
             url = f"{self._cloud_base_url}/hub/remote/cc/{COZIFY_API_VERSION}/hub/poll"
 
@@ -341,13 +341,12 @@ class CozifyHubAuth:
 
     async def get_hub_info_local(self, hub_host: str, hub_token: str) -> dict[str, Any]:
         """Get hub info via local connection."""
-        url = f"https://{hub_host}:{COZIFY_LOCAL_API_PORT}/hub"
+        url = f"http://{hub_host}:{COZIFY_LOCAL_API_PORT}/hub"
         try:
             async with self._session.get(
                 url,
                 headers={"Authorization": hub_token},
-                ssl=False,  # Hub uses self-signed cert
-                timeout=aiohttp.ClientTimeout(total=10),
+                timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.ok:
                     data = await resp.json(content_type=None)
