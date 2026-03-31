@@ -163,10 +163,9 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
 
         def _hub_label(hub_id: str, info: dict) -> str:
             status = "Online ✓" if info["online"] else "Offline"
-            if info.get("lan_ip") and info["online"]:
-                return f"{info['name']} — {info['lan_ip']} — Paikallinen — {status}"
-            elif info.get("lan_ip"):
-                return f"{info['name']} — {info['lan_ip']} — Paikallinen — {status}"
+            if info.get("lan_ip"):
+                local_status = "Paikallinen" if info["online"] else "Paikallinen (ei vastausta)"
+                return f"{info['name']} — {info['lan_ip']} — {local_status} — {status}"
             return f"{info['name']} — Ei paikallista IP:tä — {status}"
 
         return self.async_show_form(
