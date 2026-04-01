@@ -118,18 +118,28 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             session = async_get_clientsession(self.hass)
             auth = CozifyHubAuth(session, API_ENVIRONMENT_PRODUCTION)
 
-            # Try each hub token until one works with this IP
-            for hub_id, hub_token in self._hub_keys.items():
-                try:
-                    info = await auth.get_hub_info_local(hub_ip, hub_token)
-                    if info.get("reachable"):
-                        hub_name = info.get("name", f"Cozify HUB ({hub_id[:8]})")
-                        _LOGGER.debug("Hub identified: %s at %s", hub_name, hub_ip)
-                        return await self._create_entry(hub_id, hub_token, hub_name, hub_ip)
-                except Exception as err:
-                    _LOGGER.debug("Token %s failed for %s: %s", hub_id[:8], hub_ip, err)
+            # Get hub info from local /hub endpoint (public, no auth needed)
+            try:
+                info = await auth.get_hub_info_local(hub_ip, "")
+                if not info.get("reachable"):
+                    errors["base"] = "cannot_connect"
+                else:
+                    local_hub_id = info.get("hubId", "")
+                    hub_name = info.get("name", f"Cozify HUB")
+                    _LOGGER.debug("Hub at %s has hubId: %s name: %s", hub_ip, local_hub_id, hub_name)
 
-            errors["base"] = "cannot_connect"
+                    # Match hubId to hub token from cloud
+                    hub_token = self._hub_keys.get(local_hub_id)
+                    if hub_token:
+                        _LOGGER.debug("Hub identified: %s at %s", hub_name, hub_ip)
+                        return await self._create_entry(local_hub_id, hub_token, hub_name, hub_ip)
+                    else:
+                        _LOGGER.error("HubId %s not found in hub keys: %s",
+                                      local_hub_id, list(self._hub_keys.keys()))
+                        errors["base"] = "cannot_connect"
+            except Exception as err:
+                _LOGGER.error("Hub IP check failed for %s: %s", hub_ip, err)
+                errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="hub_ip",
