@@ -86,7 +86,12 @@ class CozifyHubCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # On/off state
         is_on = state.get("isOn") or state.get("on", False)
 
-        room_id = d.get("room")
+        # room field can be a list ["room_id"] or string "room_id"
+        room_raw = d.get("room")
+        if isinstance(room_raw, list):
+            room_id = room_raw[0] if room_raw else None
+        else:
+            room_id = room_raw
         room_name = room_names.get(room_id) if room_id else None
 
         return {
